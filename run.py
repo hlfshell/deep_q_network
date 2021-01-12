@@ -31,16 +31,11 @@ for game in range(0, 100):
     total_reward = 0
 
     state = env.reset()
-    # # Here we are a little noise to our state to avoid issues
-    # # with zero values
-    # state = state + np.random.rand(len(state))/10.0
-    # Convert our state to pytorch - ensure it's float
-    # state = torch.from_numpy(state).float()
 
     while not done:
         step += 1
 
-        # env.render()
+        env.render()
 
         # Convert our state to pytorch - ensure it's float
         state = torch.from_numpy(state).float()

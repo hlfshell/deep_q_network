@@ -19,21 +19,12 @@ class DeepQ(nn.Module):
         # environment. Otherwise a simple neural network
         # is fine here.
         self.model = nn.Sequential(
-            # nn.LayerNorm(input_size),
             # Input 
             nn.Linear(input_size, 64),
             nn.ReLU(),
-            # nn.LeakyReLU(),
-            # nn.LayerNorm(64),
-            # nn.BatchNorm2d(64),
 
             nn.Linear(64, 64),
             nn.ReLU(),
-            # nn.LeakyReLU(),
-            # nn.LayerNorm(128),
-
-            # nn.Linear(64, 32),
-
 
             # Output
             nn.Linear(64, output_size),

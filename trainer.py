@@ -15,7 +15,6 @@ args = parser.parse_args()
 
 # Instantiate our gym
 env = gym.make(args.environment)
-env.seed(0)
 
 # Make our DeepQ network
 model = DeepQ(env)

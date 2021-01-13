@@ -12,6 +12,7 @@ from model import DeepQ
 parser = argparse.ArgumentParser()
 parser.add_argument("environment", help="which environment to run training on")
 parser.add_argument("model", help="Model file to run on environment")
+parser.add_argument("--render", action="store_true", help="render the environment")
 args = parser.parse_args()
 
 # Instantiate our gym
@@ -24,7 +25,7 @@ model.load(args.model)
 rewards = []
 steps = []
 
-for game in range(0, 100):
+for episode in range(0, 100):
     done = False
     step = 0
 
@@ -35,7 +36,8 @@ for game in range(0, 100):
     while not done:
         step += 1
 
-        env.render()
+        if args.render:
+            env.render()
 
         # Convert our state to pytorch - ensure it's float
         state = torch.from_numpy(state).float()
@@ -47,12 +49,12 @@ for game in range(0, 100):
         state, reward, done, _ = env.step(action)
         total_reward += reward
 
-        print(f"Game {game+1} | Step {step} | Reward: {total_reward}", end="\r")
+        print(f"Episode {episode+1} | Step {step} | Reward: {total_reward}", end="\r")
 
     rewards.append(total_reward)
     steps.append(step)
 
 print()
 
-print(f"Average # of steps per game: {sum(steps)/len(steps)} | Longest game was {max(steps)} | Shortest game was {min(steps)}")
-print(f"Average reward per game: {sum(rewards)/len(rewards)} | Highest reward was {max(rewards)} | Lowest reward was {min(rewards)}")
+print(f"Average # of steps per episode: {sum(steps)/len(steps)} | Longest episode was {max(steps)} | Shortest episode was {min(steps)}")
+print(f"Average reward per episode: {sum(rewards)/len(rewards)} | Highest reward was {max(rewards)} | Lowest reward was {min(rewards)}")

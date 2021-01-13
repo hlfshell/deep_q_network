@@ -9,6 +9,8 @@ def train(model, environment, loss_function, optimizer_function,
             learning_rate=1e-4, episodes=5000, epsilon=1, gamma=0.95,
             experience_replay=True, experience_memory_size=1000,
             target_network=True, batch_size=50, sync_every_steps=500,
+            save_every=None,
+            on_episode_complete=None,
             render=False):
 
     rewards = []
@@ -29,9 +31,7 @@ def train(model, environment, loss_function, optimizer_function,
 
     for episode in range(episodes):
         state = environment.reset()
-        # Here we are a little noise to our state to avoid issues
-        # with zero values
-        # state = state + np.random.rand(len(state))/10.0
+
         # Convert our state to pytorch - ensure it's float
         state = torch.from_numpy(state).float()
 
@@ -55,7 +55,6 @@ def train(model, environment, loss_function, optimizer_function,
             q_values = Q.data.numpy()
             if random() < epsilon:
                 # Generate a random action from the action_space of the environment
-                # action = np.random.randint(0, environment.action_space.n)
                 action = environment.action_space.sample()
             else:
                 # If we are not exploring, exploit the best predicted value
@@ -63,12 +62,10 @@ def train(model, environment, loss_function, optimizer_function,
                 action = np.argmax(q_values)
 
             # Take our action and 
-            state2, reward, done, _ = environment.step(action)
+            state2, reward, done, info = environment.step(action)
 
             total_reward += reward
             
-            # Convert state 2 to our state, same as our last state conversion
-            # state2 = state2 + np.random.rand(len(state2))/10.0
             # Convert our state to pytorch - ensure it's float
             state2 = torch.from_numpy(state2).float()
 
@@ -177,7 +174,7 @@ def train(model, environment, loss_function, optimizer_function,
                 results = torch.Tensor([reward]).detach()
 
                 # calculated is our calculated outcome via the chosen action's
-                # q value
+                # Q value
                 calculated = Q.squeeze()[action].unsqueeze(dim=0)
 
             if backpropagate:
@@ -206,9 +203,7 @@ def train(model, environment, loss_function, optimizer_function,
                         target_model.load_state_dict(model.state_dict())
 
                 # Print out our progress
-                print(f"Episode {episode+1} - Step {step} - Epsilon {epsilon:.4f} - Reward: {total_reward:.2f} - Recent Average Rewards: {sum(rewards[-10:])/len(rewards[-10:]) if len(rewards) > 0 else 0:.2f}", end="\r", flush=True)
-            else:
-                print(f"Episode {episode+1} - Step {step} - No backpropagation", end="\r")
+                print(f"Episode {episode+1} - Step {step} - Epsilon {epsilon:.4f} - Reward: {total_reward:.2f} - REWARDS - Last 100: {sum(rewards[-100:])/len(rewards[-100:]) if len(rewards) > 0 else 0:.2f} - Last 10: {sum(rewards[-10:])/len(rewards[-10:]) if len(rewards) > 0 else 0:.2f}", end="\r", flush=True)
 
         
             # Our state2 becomes our current state
@@ -218,11 +213,19 @@ def train(model, environment, loss_function, optimizer_function,
         steps.append(step)
         rewards.append(total_reward)
 
+        if save_every and (episode + 1) % save_every == 0:
+            model.save(f"model_episode_{episode+1}.pt")
+
         # After each episode, we reduce the epsilon value to slow down our exploration
         # rate. We never go below 10% for now
         if epsilon > 0.01:
             # epsilon -= 1 / episodes
             epsilon = epsilon * 0.996
+
+        if on_episode_complete is not None:
+            stop = on_episode_complete(episode, step, steps, total_reward, rewards)
+            if stop:
+                break
 
     print()
 

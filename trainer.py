@@ -19,9 +19,6 @@ env = gym.make(args.environment)
 # Make our DeepQ network
 model = DeepQ(env)
 
-# Make our trainer
-# Train!
-
 # Solved is being passed to on_episode_complete, which is called
 # upon each episode completion. From there, we will check to see
 # if our environment has reached the appropriate "solved" condition
@@ -53,7 +50,7 @@ def solved(episode, step, steps, total_reward, rewards):
          
         return False
 
-
+# Train
 steps, rewards = train(model, env, MSELoss(), Adam, render = args.render,
         episodes = 1000,
         experience_replay = True, experience_memory_size=1_000_000, batch_size=64,

@@ -9,6 +9,7 @@ def train(model, environment, loss_function, optimizer_function,
             learning_rate=1e-4, episodes=5000, epsilon=1, gamma=0.95,
             experience_replay=True, experience_memory_size=1000,
             target_network=True, batch_size=50, sync_every_steps=500,
+            state_transform=None,
             save_every=None,
             on_episode_complete=None,
             render=False):
@@ -32,8 +33,11 @@ def train(model, environment, loss_function, optimizer_function,
     for episode in range(episodes):
         state = environment.reset()
 
-        # Convert our state to pytorch - ensure it's float
-        state = torch.from_numpy(state).float()
+        if state_transform:
+            state = state_transform(state)
+        else:
+            # Convert our state to pytorch - ensure it's float
+            state = torch.from_numpy(state).float()
 
         if render:
             environment.render()
@@ -61,13 +65,16 @@ def train(model, environment, loss_function, optimizer_function,
                 # argmax returns the index location of the higest value
                 action = np.argmax(q_values)
 
-            # Take our action and 
+            # Take our action and take a step
             state2, reward, done, info = environment.step(action)
 
             total_reward += reward
             
-            # Convert our state to pytorch - ensure it's float
-            state2 = torch.from_numpy(state2).float()
+            if state_transform:
+                state2 = state_transform(state2)
+            else:
+                # Convert our state to pytorch - ensure it's float
+                state2 = torch.from_numpy(state2).float()
 
             # If we are using experience replay, we now have everything we need to record
             if experience_replay:

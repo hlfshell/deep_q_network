@@ -8,7 +8,7 @@ import copy
 def train(model, environment, loss_function, optimizer_function,
             learning_rate=1e-4, episodes=5000, epsilon=1, gamma=0.95,
             experience_replay=True, experience_memory_size=1000,
-            target_network=True, batch_size=50, sync_every_steps=500,
+            target_network=True, batch_size=64, sync_every_steps=500,
             state_transform=None,
             save_every=None,
             on_episode_complete=None,

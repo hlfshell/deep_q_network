@@ -4,7 +4,7 @@ from torch.optim import Adam
 from torch.nn import MSELoss, SmoothL1Loss
 from matplotlib import pylab as plt
 
-from train3 import train
+from train import train
 from model import DeepQ
 
 # Parse incoming arguments for the trainer

@@ -4,7 +4,7 @@ from torch.optim import Adam
 from torch.nn import MSELoss, SmoothL1Loss
 from matplotlib import pylab as plt
 
-from train import train
+from train3 import train
 from model import DeepQ
 
 # Parse incoming arguments for the trainer
@@ -47,18 +47,25 @@ def solved(episode, step, steps, total_reward, rewards):
                 print()
                 print(f"Solved after {step} steps")
                 return True
+
+        print(f"Episode {episode+1} took {step} steps for a reward of {total_reward:.2f}. - REWARDS - Last 100: {sum(rewards[-100:])/len(rewards[-100:]) if len(rewards) > 0 else 0:.2f} - Last 10: {sum(rewards[-10:])/len(rewards[-10:]) if len(rewards) > 0 else 0:.2f}", end="\r")
          
         return False
+
+def state_transform(state):
+        return torch.Tensor(state).float()
 
 # Train
 steps, rewards = train(model, env, MSELoss(), Adam, render = args.render,
         episodes = 1000,
         experience_replay = True, experience_memory_size=1_000_000, batch_size=64,
         target_network = True, sync_every_steps = 1e4,
-        gamma = 0.99, epsilon = 1.0, learning_rate = 5e-4,
-        save_every=1000, on_episode_complete=solved)
+        gamma = 0.99, epsilon = 1.0, epsilon_minimum=0.10,
+        epsilon_minimum_at_episode=500,
+        learning_rate = 5e-4,
+        on_episode_complete=solved)
 
-
+print()
 print("Training complete")
 
 plt.figure(figsize=(10,7))

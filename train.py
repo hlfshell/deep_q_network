@@ -5,17 +5,47 @@ import numpy as np
 from collections import deque
 import copy
 
-def train(model, environment, loss_function, optimizer_function,
-            learning_rate=1e-4, episodes=5000, epsilon=1, gamma=0.95,
-            experience_replay=True, experience_memory_size=1000,
-            target_network=True, batch_size=64, sync_every_steps=500,
-            state_transform=None,
-            save_every=None,
-            on_episode_complete=None,
-            render=False):
+def train(
+    # Required inputs
+    model, environment, loss_function, optimizer_function,
+    # Standard settings
+    learning_rate=1e-4, episodes=5000, gamma=0.95, render=False, device=None,
+    # Epsilon greedy settings
+    epsilon=1, epsilon_minimum=0.05, epsilon_minimum_at_episode=None,
+    # Backpropagation settings
+    batch_size=64, backpropagate_every=1,
+    # Experience replay settings
+    experience_replay=True, experience_memory_size=10_00,
+    # Target network settings
+    target_network=True, sync_every_steps=500,
+    # Function controls
+    state_transform=None, on_episode_complete=None, modify_reward=None,
+    # Checkpoint settings
+    checkpoint_model=None, checkpoint_target_model=None, checkpoint_trainer=None,
+    save_every=None, save_to_folder="",
+    ):
 
     rewards = []
     steps = []
+
+    # If the device is not set, determine if we are going
+    # to use GPU or CPU. If it is set, respect that setting
+    if device == None:
+        if torch.cuda.is_available():
+            device = "cuda"
+        else:
+            device = "cpu"
+
+    # Calculate the epsilon decay off of epsilon_minimum and
+    # epsilon_minimum_at_episode. If epsilon_minimum_at_episode
+    # is None, set it to the total episode count by default
+    if epsilon_minimum_at_episode is None:
+        epsilon_minimum_at_episode = episodes
+    # This math is derived on the idea that we want the
+    # decay, over epsilon_minimum_at_episode episodes
+    # to equal our epsilon minimum.
+    epsilon_decay = (epsilon_minimum / epsilon) ** (1/epsilon_minimum_at_episode)
+
 
     # If needed, prep our experience replay buffer
     if experience_replay:
@@ -30,14 +60,28 @@ def train(model, environment, loss_function, optimizer_function,
     # Prepare our optimizer
     optimizer = optimizer_function(model.parameters(), lr=learning_rate)
 
-    for episode in range(episodes):
-        state = environment.reset()
+    # If we have a checkpoint set, we will resume from that.
+    # So here we shall load up the checkpoint and 
+    if checkpoint_model:
+        model.load(checkpoint_model)
+        if target_network:
+            target_model.load(checkpoint_target_model)
+        training_state = pickle.load(checkpoint_trainer)
+        rewards = training_state['rewards']
+        steps = training_state['steps']
+        optimizer_steps = training_state['optimizer_steps']
+        epsilon = training_state['epsilon']
+        experience_memory = training_state['experience_memory']
+        del training_state
 
+    for episode in range(episodes):
+        state_original = environment.reset()
+    
         if state_transform:
-            state = state_transform(state)
+            state = state_transform([state_original])
         else:
             # Convert our state to pytorch - ensure it's float
-            state = torch.from_numpy(state).float()
+            state = torch.from_numpy(state_original).float()
 
         if render:
             environment.render()
@@ -66,33 +110,32 @@ def train(model, environment, loss_function, optimizer_function,
                 action = np.argmax(q_values)
 
             # Take our action and take a step
-            state2, reward, done, info = environment.step(action)
+            state2_original, reward, done, info = environment.step(action)
+
+            if modify_reward:
+                reward = modify_reward(reward)
 
             total_reward += reward
             
             if state_transform:
-                state2 = state_transform(state2)
+                state2 = state_transform([state2_original])
             else:
                 # Convert our state to pytorch - ensure it's float
-                state2 = torch.from_numpy(state2).float()
+                state2 = torch.from_numpy(state2_original).float()
 
             # If we are using experience replay, we now have everything we need to record
             if experience_replay:
-                experience = (state, action, reward, state2, done)
+                # Why are we not storing the transformed state? In the event that we are
+                # utilizing a GPU, we do not want to store the experience replay memory
+                # in GPU memory. We do take a hit in time for the repeated transferral,
+                # but so be it for now. 
+                experience = (state_original, action, reward, state2_original, done)
                 experience_memory.append(experience)
-
-            # backpropagate is a trigger for whether or not we perform a loss
-            # calculation and optimizer step. It may be skipped depending on
-            # settings for the trainer
-            backpropagate = False
 
             # If we have experience replay, we must wait until we have at least
             # a single batch of memories to train on. If we aren't, just continue
             # irregardless.
             if experience_replay and len(experience_memory) >= batch_size:
-                # Mark backpropagation to trigger
-                backpropagate = True
-
                 # Create our batches from the experience memory
                 experience_batch = sample(experience_memory, batch_size)
                 
@@ -102,11 +145,26 @@ def train(model, environment, loss_function, optimizer_function,
                 # tensor to be of a shape [1, <observational space>]. instead of just
                 # [<observational space>] to prevent the cat from just creating a
                 # long singular row of tensors
-                state_batch = torch.cat([state.unsqueeze(dim=0) for (state, action, reward, state2, done) in experience_batch]) # Combine state tensors into a singular batch tensor
+                if state_transform:
+                    state_batch = state_transform(state_batch)
+                else:
+                    state_batch = torch.Tensor([state for (state, action, reward, state2, done) in experience_batch])
                 action_batch = torch.Tensor([action for (state, action, reward, state2, done) in experience_batch]) # Take the sequence of actions, convert to tensor
                 reward_batch = torch.Tensor([reward for (state, action, reward, state2, done) in experience_batch]) # Take the sequence of rewards, convert to tensor
-                state2_batch =  torch.cat([state2.unsqueeze(dim=0) for (state, action, reward, state2, done) in experience_batch]) # Combine state2 tensors into a singular batch tensor
+                if state_transform:
+                    state2_batch = state_transform(state2_batch)
+                else:
+                    state2_batch = torch.Tensor([state2 for (state, action, reward, state2, done) in experience_batch])
                 done_batch = torch.Tensor([done for (state, action, reward, state2, done) in experience_batch]) # Take the sequence of done booleans, convert to tensor. This automatically onehot-encodes
+
+                # This is done in case the state transformation function fails to.
+                # It should be a no-op in the event that the tensors were already
+                # on the disk.
+                state_batch = state_batch.to(device)
+                action_batch = action_batch.to(device)
+                reward_batch = reward_batch.to(device)
+                state2_batch = state2_batch.to(device)
+                done_batch = done_batch.to(device)
 
                 # Regenerate the Q values for the given batch at our current state
                 # This is necessary because the batch may include old states from an
@@ -154,9 +212,6 @@ def train(model, environment, loss_function, optimizer_function,
                 calculated = Q1.gather(dim=1, index=action_batch.long().unsqueeze(dim=1)).squeeze()
 
             elif not experience_replay:
-                # Mark backpropagation to trigger
-                backpropagate = True
-
                 # Without saving the gradient, get the Q for the next state (Q2) as well
                 with torch.no_grad():
                     # If the target network is being used, we utilize that network
@@ -184,7 +239,8 @@ def train(model, environment, loss_function, optimizer_function,
                 # Q value
                 calculated = Q.squeeze()[action].unsqueeze(dim=0)
 
-            if backpropagate:
+            if (not experience_replay or (experience_replay and len(experience_memory) >= batch_size)) \
+                and step % backpropagate_every == 0:
                 # Irregardless of what method we used, we now have two tensors -
                 # calculated and results - which represent, respectively, what
                 # our Q network thinks it will get for the actions, and what it
@@ -209,12 +265,10 @@ def train(model, environment, loss_function, optimizer_function,
                     if optimizer_steps % sync_every_steps == 0:
                         target_model.load_state_dict(model.state_dict())
 
-                # Print out our progress
-                print(f"Episode {episode+1} - Step {step} - Epsilon {epsilon:.4f} - Reward: {total_reward:.2f} - REWARDS - Last 100: {sum(rewards[-100:])/len(rewards[-100:]) if len(rewards) > 0 else 0:.2f} - Last 10: {sum(rewards[-10:])/len(rewards[-10:]) if len(rewards) > 0 else 0:.2f}", end="\r", flush=True)
-
-        
             # Our state2 becomes our current state
+            # We also transfer
             state = state2
+            state_original = state2_original
 
         # Append the step count to steps
         steps.append(step)
@@ -224,16 +278,31 @@ def train(model, environment, loss_function, optimizer_function,
             model.save(f"model_episode_{episode+1}.pt")
 
         # After each episode, we reduce the epsilon value to slow down our exploration
-        # rate. We never go below 10% for now
-        if epsilon > 0.01:
-            # epsilon -= 1 / episodes
-            epsilon = epsilon * 0.996
+        # rate. We never go below epsilon_minimum.
+        if epsilon > epsilon_minimum:
+            epsilon *= epsilon_decay
+        else:
+            epsilon = epsilon_minimum
 
-        if on_episode_complete is not None:
+        # If our save_every triggers, saved the model, our target model (if used), and
+        # what traininer state/variables we need to continue on from this point.
+        # Note that this process tends to be slow
+        if save_every and (episode + 1) % save_every == 0:
+            model.save(f"{save_to_folder}/model_episode_{episode+1}.pt")
+            if target_network:
+                target_model.save(f"{save_to_folder}/target_network_episode_{episode+1}.pt")
+            training_state = {
+                "experience_memory": experience_memory,
+                "rewards": rewards,
+                "steps": steps,
+                "epsilon": epsilon,   
+                "optimizer_steps": optimizer_steps,
+            }
+            pickle.dump(training_state, open(f"{save_to_folder}/training_state_{episode+1}.pt", "wb"))
+
+        if on_episode_complete:
             stop = on_episode_complete(episode, step, steps, total_reward, rewards)
             if stop:
                 break
-
-    print()
 
     return steps, rewards

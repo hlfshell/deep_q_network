@@ -42,20 +42,14 @@ class DeepQ_CNN(nn.Module):
             # Input
             nn.Conv2d(channels, 32, 5),
 
-            nn.Conv2d(32, 32, 5),
-
-            # nn.Conv2d(64, 128, 5),
-
+            nn.Conv2d(32, 64, 5),
 
             # Flatten our CNN output
             nn.Flatten(),
 
             # Now we can do a dense network
-            nn.Linear(conv_output_shape[0]*conv_output_shape[1]*32, 256),
+            nn.Linear(conv_output_shape[0]*conv_output_shape[1]*64, 256),
             nn.LeakyReLU(),
-
-            # nn.Linear(256, 64),
-            # nn.LeakyReLU(),
 
             # Output
             nn.Linear(256, output_size),

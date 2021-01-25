@@ -46,7 +46,6 @@ def train(
     # to equal our epsilon minimum.
     epsilon_decay = (epsilon_minimum / epsilon) ** (1/epsilon_minimum_at_episode)
 
-
     # If needed, prep our experience replay buffer
     if experience_replay:
         experience_memory = deque(maxlen=experience_memory_size)
@@ -78,10 +77,12 @@ def train(
         state_original = environment.reset()
     
         if state_transform:
-            state = state_transform([state_original])
+            # Note the expand_dims usage - we are setting the state up as if
+            # it is a batch of 1
+            state = state_transform(np.expand_dims(state_original, 0))
         else:
             # Convert our state to pytorch - ensure it's float
-            state = torch.from_numpy(state_original).float()
+            state = torch.from_numpy(np.expand_dims(state_original, 0)).float()
 
         if render:
             environment.render()
@@ -118,10 +119,10 @@ def train(
             total_reward += reward
             
             if state_transform:
-                state2 = state_transform([state2_original])
+                state2 = state_transform(np.expand_dims(state2_original, 0))
             else:
                 # Convert our state to pytorch - ensure it's float
-                state2 = torch.from_numpy(state2_original).float()
+                state2 = torch.from_numpy(np.expand_dims(state2_original, 0)).float()
 
             # If we are using experience replay, we now have everything we need to record
             if experience_replay:
@@ -146,13 +147,13 @@ def train(
                 # [<observational space>] to prevent the cat from just creating a
                 # long singular row of tensors
                 if state_transform:
-                    state_batch = state_transform(state_batch)
+                    state_batch = state_transform(np.array([state for (state, action, reward, state2, done) in experience_batch]))
                 else:
                     state_batch = torch.Tensor([state for (state, action, reward, state2, done) in experience_batch])
                 action_batch = torch.Tensor([action for (state, action, reward, state2, done) in experience_batch]) # Take the sequence of actions, convert to tensor
                 reward_batch = torch.Tensor([reward for (state, action, reward, state2, done) in experience_batch]) # Take the sequence of rewards, convert to tensor
                 if state_transform:
-                    state2_batch = state_transform(state2_batch)
+                    state2_batch = state_transform(np.array([state2 for (state, action, reward, state2, done) in experience_batch]))
                 else:
                     state2_batch = torch.Tensor([state2 for (state, action, reward, state2, done) in experience_batch])
                 done_batch = torch.Tensor([done for (state, action, reward, state2, done) in experience_batch]) # Take the sequence of done booleans, convert to tensor. This automatically onehot-encodes

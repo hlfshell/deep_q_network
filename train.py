@@ -3,6 +3,7 @@ from torch import optim
 from random import random, sample
 import numpy as np
 from collections import deque
+import pickle
 import copy
 
 def train(
@@ -59,21 +60,25 @@ def train(
     # Prepare our optimizer
     optimizer = optimizer_function(model.parameters(), lr=learning_rate)
 
+    # Start at episode 0
+    episode = 0
+
     # If we have a checkpoint set, we will resume from that.
     # So here we shall load up the checkpoint and 
     if checkpoint_model:
         model.load(checkpoint_model)
         if target_network:
             target_model.load(checkpoint_target_model)
-        training_state = pickle.load(checkpoint_trainer)
+        training_state = pickle.load(open(checkpoint_trainer, 'rb'))
         rewards = training_state['rewards']
         steps = training_state['steps']
+        episode = len(rewards)
         optimizer_steps = training_state['optimizer_steps']
         epsilon = training_state['epsilon']
         experience_memory = training_state['experience_memory']
         del training_state
 
-    for episode in range(episodes):
+    for episode in range(episode, episodes):
         state_original = environment.reset()
     
         if state_transform:
@@ -83,6 +88,7 @@ def train(
         else:
             # Convert our state to pytorch - ensure it's float
             state = torch.from_numpy(np.expand_dims(state_original, 0)).float()
+        state = state.to(device)
 
         if render:
             environment.render()
@@ -100,8 +106,9 @@ def train(
             if render:
                 environment.render()
             
-            # Convert to numpy for ease of use
-            q_values = Q.data.numpy()
+            # Convert to numpy for ease of use. If it's on GPU, we need to
+            # copy the tensor back to CPU
+            q_values = Q.cpu().data.numpy()
             if random() < epsilon:
                 # Generate a random action from the action_space of the environment
                 action = environment.action_space.sample()
@@ -123,6 +130,7 @@ def train(
             else:
                 # Convert our state to pytorch - ensure it's float
                 state2 = torch.from_numpy(np.expand_dims(state2_original, 0)).float()
+            state2 = state2.to(device)
 
             # If we are using experience replay, we now have everything we need to record
             if experience_replay:
@@ -300,6 +308,8 @@ def train(
                 "optimizer_steps": optimizer_steps,
             }
             pickle.dump(training_state, open(f"{save_to_folder}/training_state_{episode+1}.pt", "wb"))
+            del training_state # This shouldn't be needed, but I've seen some troubles with RAM post pickle write
+            
 
         if on_episode_complete:
             stop = on_episode_complete(episode, step, steps, total_reward, rewards)

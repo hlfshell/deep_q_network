@@ -45,7 +45,7 @@ def solved(episode, step, steps, total_reward, rewards):
 
         if solved:
                 print()
-                print(f"Solved after {step} steps")
+                print(f"Solved after {len(steps)} steps")
                 return True
 
         print(f"Episode {episode+1} took {step} steps for a reward of {total_reward:.2f}. - REWARDS - Last 100: {sum(rewards[-100:])/len(rewards[-100:]) if len(rewards) > 0 else 0:.2f} - Last 10: {sum(rewards[-10:])/len(rewards[-10:]) if len(rewards) > 0 else 0:.2f}", end="\r")

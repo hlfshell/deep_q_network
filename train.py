@@ -79,16 +79,13 @@ def train(
         del training_state
 
     for episode in range(episode, episodes):
-        state_original = environment.reset()
+        state = environment.reset()
     
         if state_transform:
-            # Note the expand_dims usage - we are setting the state up as if
-            # it is a batch of 1
-            state = state_transform(np.expand_dims(state_original, 0))
+            state = state_transform(state)
         else:
             # Convert our state to pytorch - ensure it's float
-            state = torch.from_numpy(np.expand_dims(state_original, 0)).float()
-        state = state.to(device)
+            state = torch.from_numpy(state).float()
 
         if render:
             environment.render()
@@ -100,8 +97,11 @@ def train(
         while not done:
             step += 1
 
+            # Ensure that state is on the appropriate device
+            state = state.to(device)
+
             # Get our Q values predictions for each action
-            Q = model(state)
+            Q = model(state.unsqueeze(dim=0))
             
             if render:
                 environment.render()
@@ -118,7 +118,7 @@ def train(
                 action = np.argmax(q_values)
 
             # Take our action and take a step
-            state2_original, reward, done, info = environment.step(action)
+            state2, reward, done, info = environment.step(action)
 
             if modify_reward:
                 reward = modify_reward(reward)
@@ -126,19 +126,19 @@ def train(
             total_reward += reward
             
             if state_transform:
-                state2 = state_transform(np.expand_dims(state2_original, 0))
+                state2 = state_transform(state2)
             else:
                 # Convert our state to pytorch - ensure it's float
-                state2 = torch.from_numpy(np.expand_dims(state2_original, 0)).float()
-            state2 = state2.to(device)
+                state2 = torch.from_numpy(state2).float()
 
             # If we are using experience replay, we now have everything we need to record
             if experience_replay:
-                # Why are we not storing the transformed state? In the event that we are
-                # utilizing a GPU, we do not want to store the experience replay memory
-                # in GPU memory. We do take a hit in time for the repeated transferral,
-                # but so be it for now. 
-                experience = (state_original, action, reward, state2_original, done)
+                # We are transfering state and state2 to cpu to make use of non GPU RAM
+                # so that our experience replay buffer does not take up significant GPU
+                # RAM. We are doing this instead of storing the original state since
+                # often the pytorch represented state may be smaller than the actual
+                # original state.
+                experience = (state.cpu(), action, reward, state2.cpu(), done)
                 experience_memory.append(experience)
 
             # If we have experience replay, we must wait until we have at least
@@ -154,16 +154,10 @@ def train(
                 # tensor to be of a shape [1, <observational space>]. instead of just
                 # [<observational space>] to prevent the cat from just creating a
                 # long singular row of tensors
-                if state_transform:
-                    state_batch = state_transform(np.array([state for (state, action, reward, state2, done) in experience_batch]))
-                else:
-                    state_batch = torch.Tensor([state for (state, action, reward, state2, done) in experience_batch])
+                state_batch = torch.cat([state.unsqueeze(dim=0) for (state, action, reward, state2, done) in experience_batch])
                 action_batch = torch.Tensor([action for (state, action, reward, state2, done) in experience_batch]) # Take the sequence of actions, convert to tensor
                 reward_batch = torch.Tensor([reward for (state, action, reward, state2, done) in experience_batch]) # Take the sequence of rewards, convert to tensor
-                if state_transform:
-                    state2_batch = state_transform(np.array([state2 for (state, action, reward, state2, done) in experience_batch]))
-                else:
-                    state2_batch = torch.Tensor([state2 for (state, action, reward, state2, done) in experience_batch])
+                state2_batch = torch.cat([state2.unsqueeze(dim=0) for (state, action, reward, state2, done) in experience_batch])
                 done_batch = torch.Tensor([done for (state, action, reward, state2, done) in experience_batch]) # Take the sequence of done booleans, convert to tensor. This automatically onehot-encodes
 
                 # This is done in case the state transformation function fails to.
@@ -226,9 +220,9 @@ def train(
                     # If the target network is being used, we utilize that network
                     # to get our second state. Otherwise, use the base netwwork
                     if target_network:
-                        Q2 = target_model(state2)
+                        Q2 = target_model(state2.unsqueeze(dim=0))
                     else:
-                        Q2 = model(state2)
+                        Q2 = model(state2.unsqueeze(dim=0))
 
 
                 # Grab the max of the calculated next step
@@ -277,7 +271,6 @@ def train(
             # Our state2 becomes our current state
             # We also transfer
             state = state2
-            state_original = state2_original
 
         # Append the step count to steps
         steps.append(step)
@@ -309,7 +302,7 @@ def train(
             }
             pickle.dump(training_state, open(f"{save_to_folder}/training_state_{episode+1}.pt", "wb"))
             del training_state # This shouldn't be needed, but I've seen some troubles with RAM post pickle write
-            
+
 
         if on_episode_complete:
             stop = on_episode_complete(episode, step, steps, total_reward, rewards)

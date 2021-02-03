@@ -1,5 +1,6 @@
 import argparse
 import gym
+import torch
 from torch.optim import Adam
 from torch.nn import MSELoss, SmoothL1Loss
 from matplotlib import pylab as plt
@@ -63,7 +64,7 @@ steps, rewards = train(model, env, MSELoss(), Adam, render = args.render,
         gamma = 0.99, epsilon = 1.0, epsilon_minimum=0.10,
         epsilon_minimum_at_episode=500,
         learning_rate = 5e-4,
-        on_episode_complete=solved)
+        on_episode_complete=solved, state_transform=state_transform)
 
 print()
 print("Training complete")
